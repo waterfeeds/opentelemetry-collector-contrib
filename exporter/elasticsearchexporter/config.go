@@ -52,6 +52,12 @@ type Config struct {
 	// This setting is required.
 	Index string `mapstructure:"index"`
 
+	// Enable Logstash format compatibility. This option takes a boolean value: True/False, On/Off
+	LogstashFormat bool `mapstructure:"logstash_format"`
+
+	// Time format (based on strftime) to generate the second part of the Index name.
+	LogstashDateFormat string `mapstructure:"logstash_dateformat"`
+
 	// Pipeline configures the ingest node pipeline name that should be used to process the
 	// events.
 	//

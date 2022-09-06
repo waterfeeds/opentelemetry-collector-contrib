@@ -14,6 +14,8 @@ exporters:
     headers:
       myheader: test
     index: myindex
+    logstash_format: true
+    logstash_dateformat: "%Y-%m-%d"
     pipeline: mypipeline
     user: elastic
     password: search

@@ -29,6 +29,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	elasticsearch7 "github.com/elastic/go-elasticsearch/v7"
 	esutil7 "github.com/elastic/go-elasticsearch/v7/esutil"
+	strftime "github.com/itchyny/timefmt-go"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/multierr"
@@ -43,10 +44,17 @@ type esBulkIndexerCurrent = esutil7.BulkIndexer
 type esBulkIndexerItem = esutil7.BulkIndexerItem
 type esBulkIndexerResponseItem = esutil7.BulkIndexerResponseItem
 
+type IndexConfig struct {
+	index string
+
+	logstashFormat     bool
+	logstashDateFormat string
+}
+
 type elasticsearchExporter struct {
 	logger *zap.Logger
 
-	index       string
+	indexConfig IndexConfig
 	maxAttempts int
 
 	client      *esClientCurrent
@@ -86,7 +94,11 @@ func newExporter(logger *zap.Logger, cfg *Config) (*elasticsearchExporter, error
 		client:      client,
 		bulkIndexer: bulkIndexer,
 
-		index:       cfg.Index,
+		indexConfig: IndexConfig{
+			index:              cfg.Index,
+			logstashFormat:     cfg.LogstashFormat,
+			logstashDateFormat: cfg.LogstashDateFormat,
+		},
 		maxAttempts: maxAttempts,
 		model:       model,
 	}, nil
@@ -126,13 +138,15 @@ func (e *elasticsearchExporter) pushLogRecord(ctx context.Context, resource pcom
 	if err != nil {
 		return fmt.Errorf("Failed to encode log event: %w", err)
 	}
-	return e.pushEvent(ctx, document)
+
+	index := e.indexWithDate(record.Timestamp().AsTime())
+	return e.pushEvent(ctx, index, document)
 }
 
-func (e *elasticsearchExporter) pushEvent(ctx context.Context, document []byte) error {
+func (e *elasticsearchExporter) pushEvent(ctx context.Context, index string, document []byte) error {
 	attempts := 1
 	body := bytes.NewReader(document)
-	item := esBulkIndexerItem{Action: createAction, Index: e.index, Body: body}
+	item := esBulkIndexerItem{Action: createAction, Index: index, Body: body}
 
 	// Setup error handler. The handler handles the per item response status based on the
 	// selective ACKing in the bulk response.
@@ -167,6 +181,16 @@ func (e *elasticsearchExporter) pushEvent(ctx context.Context, document []byte) 
 	}
 
 	return e.bulkIndexer.Add(ctx, item)
+}
+
+func (e *elasticsearchExporter) indexWithDate(date time.Time) (index string) {
+	if !e.indexConfig.logstashFormat {
+		index = e.indexConfig.index
+		return
+	}
+
+	index = fmt.Sprintf("%s-%s", e.indexConfig.index, strftime.Format(date, e.indexConfig.logstashDateFormat))
+	return
 }
 
 // clientLogger implements the estransport.Logger interface
